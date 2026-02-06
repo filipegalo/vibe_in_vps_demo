@@ -10,16 +10,16 @@ services:
     environment:
       - NODE_ENV=production
       # [DB_ENV_START] - Auto-managed by setup wizard
-      # - DATABASE_URL=postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-app}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-app}
       # - MYSQL_URL=mysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-app}
       # - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       # [DB_ENV_END]
     networks:
       - app-network
     # [DB_DEPENDS_START] - Auto-managed by setup wizard
-    # depends_on:
-      # postgres:
-        # condition: service_healthy
+    depends_on:
+      postgres:
+        condition: service_healthy
       # mysql:
         # condition: service_healthy
       # redis:
@@ -37,24 +37,24 @@ services:
   # ==========================================
 
   # [POSTGRES_START]
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_USER: ${POSTGRES_USER:-app}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #     POSTGRES_DB: ${POSTGRES_DB:-app}
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   networks:
-  #     - app-network
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app}"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 30s
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
   # [POSTGRES_END]
 
   # [MYSQL_START]
@@ -124,8 +124,8 @@ networks:
     driver: bridge
 
 # [DB_VOLUMES_START] - Auto-managed by setup wizard
-# volumes:
-#   postgres-data:
+volumes:
+  postgres-data:
 #   mysql-data:
 #   redis-data:
 # [DB_VOLUMES_END]
