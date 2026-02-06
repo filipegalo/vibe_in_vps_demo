@@ -9,3 +9,8 @@
 
 # SSH access for your IP (configured via setup wizard)
 # additional_ssh_ips = []  # Disabled in wizard
+
+# Cloudflare Configuration (configured via setup wizard)
+# Note: CLOUDFLARE_API_TOKEN is in GitHub Secrets, not this file
+cloudflare_zone_id = "2439f1ac723d9e16309029e6b3bc6ca3"
+domain_name        = "vibe-in-vps.comn"
