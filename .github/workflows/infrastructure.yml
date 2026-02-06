@@ -1,0 +1,253 @@
+name: Provision Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/infrastructure.yml'
+  workflow_dispatch:
+    inputs:
+      destroy:
+        description: 'Destroy infrastructure instead of creating it'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  terraform:
+    name: Provision Infrastructure
+    runs-on: ubuntu-latest
+    env:
+      # Sensitive variables passed as environment variables (not in terraform.tfvars)
+      TF_VAR_hcloud_token: ${{ secrets.HETZNER_TOKEN }}
+      TF_VAR_healthchecks_api_key: ${{ secrets.HEALTHCHECKS_API_KEY }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      # Non-sensitive variable from repository context
+      TF_VAR_github_repository: ${{ github.repository }}
+    outputs:
+      vps_host: ${{ steps.tf_output.outputs.vps_host }}
+      healthcheck_ping_url: ${{ steps.tf_output.outputs.healthcheck_ping_url }}
+      cloudflare_tunnel_token: ${{ steps.tf_output.outputs.cloudflare_tunnel_token }}
+      custom_domain_url: ${{ steps.tf_output.outputs.custom_domain_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+          terraform_wrapper: false
+
+      - name: Restore Terraform State
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: infrastructure.yml
+          name: terraform-state
+          path: infra/terraform/
+          if_no_artifact_found: warn
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: infra/terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        if: ${{ !inputs.destroy }}
+        working-directory: infra/terraform
+        run: terraform plan
+
+      - name: Terraform Apply
+        if: ${{ !inputs.destroy }}
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve
+
+      - name: Terraform Destroy
+        if: ${{ inputs.destroy }}
+        working-directory: infra/terraform
+        run: terraform destroy -auto-approve
+
+      - name: Extract Terraform Outputs
+        if: ${{ !inputs.destroy }}
+        id: tf_output
+        working-directory: infra/terraform
+        run: |
+          VPS_HOST=$(terraform output -raw server_ip)
+          HEALTHCHECK_URL=$(terraform output -raw healthcheck_ping_url)
+          CLOUDFLARE_TOKEN=$(terraform output -raw cloudflare_tunnel_token)
+          CUSTOM_DOMAIN=$(terraform output -raw custom_domain_url)
+
+          echo "vps_host=$VPS_HOST" >> $GITHUB_OUTPUT
+          echo "healthcheck_ping_url=$HEALTHCHECK_URL" >> $GITHUB_OUTPUT
+          echo "cloudflare_tunnel_token=$CLOUDFLARE_TOKEN" >> $GITHUB_OUTPUT
+          echo "custom_domain_url=$CUSTOM_DOMAIN" >> $GITHUB_OUTPUT
+
+          echo "### Terraform Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**VPS IP Address:** \`$VPS_HOST\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH Command:** \`ssh deploy@$VPS_HOST\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            echo "**App URL:** $CUSTOM_DOMAIN" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**App URL:** http://$VPS_HOST" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Save Terraform State
+        if: ${{ !inputs.destroy && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: infra/terraform/terraform.tfstate
+          retention-days: 90
+          overwrite: true
+
+      - name: Display secrets configuration instructions
+        if: ${{ !inputs.destroy }}
+        env:
+          VPS_HOST: ${{ steps.tf_output.outputs.vps_host }}
+          HEALTHCHECK_URL: ${{ steps.tf_output.outputs.healthcheck_ping_url }}
+          CLOUDFLARE_TOKEN: ${{ steps.tf_output.outputs.cloudflare_tunnel_token }}
+          CUSTOM_DOMAIN: ${{ steps.tf_output.outputs.custom_domain_url }}
+        run: |
+          echo "### ⚠️ Action Required: Configure Deployment Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Add these secrets to enable automatic deployments:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Go to: **Settings → Secrets and variables → Actions → New repository secret**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Required secret:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Name: \`VPS_HOST\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Value: \`$VPS_HOST\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "$HEALTHCHECK_URL" ]; then
+            echo "**Optional secret (for monitoring):**" >> $GITHUB_STEP_SUMMARY
+            echo "- Name: \`HEALTHCHECK_PING_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Value: \`$HEALTHCHECK_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -n "$CLOUDFLARE_TOKEN" ]; then
+            echo "**Optional secret (for custom domain):**" >> $GITHUB_STEP_SUMMARY
+            echo "- Name: \`CLOUDFLARE_TUNNEL_TOKEN\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Value: \`$CLOUDFLARE_TOKEN\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Custom domain configuration:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Name: \`CUSTOM_DOMAIN_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Value: \`$CUSTOM_DOMAIN\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Important:** Uncomment the \`cloudflared\` service in \`deploy/docker-compose.yml\` to enable custom domain!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🗄️ Optional Database Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If you're using databases, add these secrets (generate passwords with \`openssl rand -base64 32\`):" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PostgreSQL:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POSTGRES_PASSWORD\` - Database password" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**MySQL:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`MYSQL_ROOT_PASSWORD\` - Root password" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Redis:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`REDIS_PASSWORD\` - Redis password" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Then uncomment the database services in \`deploy/docker-compose.yml\` and redeploy." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "After adding these secrets, automatic deployments will work on push to main." >> $GITHUB_STEP_SUMMARY
+
+  verify:
+    name: Verify VPS Setup
+    needs: terraform
+    if: ${{ !inputs.destroy }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Wait for VPS to be ready
+        run: |
+          echo "Waiting for VPS to accept SSH connections..."
+          VPS_HOST="${{ needs.terraform.outputs.vps_host }}"
+
+          for i in {1..60}; do
+            if nc -z -w5 $VPS_HOST 22; then
+              echo "✅ VPS is accepting SSH connections!"
+              sleep 30  # Give cloud-init more time to complete
+              exit 0
+            fi
+            echo "Attempt $i/60 - waiting for SSH on $VPS_HOST..."
+            sleep 10
+          done
+
+          echo "❌ Could not connect to VPS after 10 minutes"
+          exit 1
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ needs.terraform.outputs.vps_host }} >> ~/.ssh/known_hosts
+
+      - name: Wait for cloud-init to complete
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no deploy@${{ needs.terraform.outputs.vps_host }} << 'EOF'
+            echo "Waiting for cloud-init to complete..."
+
+            MAX_WAIT=600
+            ELAPSED=0
+            while [ ! -f /opt/app/.cloud-init-complete ]; do
+              if [ $ELAPSED -ge $MAX_WAIT ]; then
+                echo "ERROR: cloud-init did not complete within ${MAX_WAIT}s"
+                exit 1
+              fi
+              echo "  Still waiting... (${ELAPSED}s)"
+              sleep 10
+              ELAPSED=$((ELAPSED + 10))
+            done
+
+            echo "✅ cloud-init complete!"
+            docker --version
+            docker compose version
+          EOF
+
+      - name: Display setup information
+        run: |
+          echo "### 🎉 Infrastructure Provisioned!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Your VPS is ready. Deploy your app by pushing code to trigger the deploy workflow." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**VPS IP:** \`${{ needs.terraform.outputs.vps_host }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH access:** \`ssh deploy@${{ needs.terraform.outputs.vps_host }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**What's installed:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Docker & Docker Compose" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Firewall configured (SSH, HTTP, HTTPS)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Deploy user with SSH access" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Add the \`VPS_HOST\` and \`HEALTHCHECK_PING_URL\` secrets (see above)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Push changes to \`main\` branch to trigger first deployment" >> $GITHUB_STEP_SUMMARY
+          echo "3. Your app will be available at: http://${{ needs.terraform.outputs.vps_host }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

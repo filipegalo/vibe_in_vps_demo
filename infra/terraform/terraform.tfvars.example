@@ -1,0 +1,40 @@
+# Copy this file to terraform.tfvars and fill in your values
+#
+# IMPORTANT: This file is SAFE TO COMMIT!
+# Sensitive values (API tokens, SSH keys) are passed via environment variables in GitHub Actions.
+# Only non-sensitive configuration (IPs, domain names, server settings) go here.
+#
+# See GitHub Secrets for sensitive values:
+# - HETZNER_TOKEN (not in this file)
+# - HEALTHCHECKS_API_KEY (not in this file)
+# - CLOUDFLARE_API_TOKEN (not in this file)
+# - CLOUDFLARE_ACCOUNT_ID (not in this file)
+# - SSH_PUBLIC_KEY (not in this file)
+
+# ============================================
+# Non-Sensitive Configuration (Safe to commit)
+# ============================================
+
+# Your custom domain (public information - safe to commit)
+# Leave empty to disable custom domain
+domain_name = ""  # e.g., "app.example.com"
+
+# Cloudflare Zone ID (not sensitive - just an identifier)
+# Leave empty if not using custom domain
+cloudflare_zone_id = ""
+
+# Optional: Customize these if needed
+# server_name = "my-app-server"
+# server_type = "cpx22"       # 2 vCPU, 4GB RAM, ~$7.50/mo (default)
+                                # cpx11 (~$4.50/mo) for cheaper option
+# location    = "nbg1"        # Nuremberg, Germany
+# project_name = "my-project"
+
+# Security: SSH is restricted to GitHub Actions IPs + optional additional IPs
+# Get your IP: curl ifconfig.me
+# additional_ssh_ips = ["1.2.3.4/32"]          # Add your IP for direct SSH access
+# additional_ssh_ips = []                      # GitHub Actions only (default)
+
+# HTTP/HTTPS access can be restricted by IP if needed (default: open to all)
+# allowed_http_ips  = ["0.0.0.0/0", "::/0"]    # Keep HTTP open to all
+# allowed_https_ips = ["0.0.0.0/0", "::/0"]    # Keep HTTPS open to all
