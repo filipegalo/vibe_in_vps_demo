@@ -1,5 +1,7 @@
 # vibe_in_vps demo
 
+[![Deploy Status](https://github.com/filipegalo/vibe_in_vps_demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/filipegalo/vibe_in_vps_demo/actions/workflows/deploy.yml)
+
 This repository is a live demo of [vibe_in_vps](https://github.com/filipegalo/vibe_in_vps) — a zero-ops deployment template that lets you deploy any Dockerized app to a cheap VPS with just a `git push`.
 
 ## What's running here
