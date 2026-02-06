@@ -12,5 +12,5 @@
 
 # Cloudflare Configuration (configured via setup wizard)
 # Note: CLOUDFLARE_API_TOKEN is in GitHub Secrets, not this file
-cloudflare_zone_id = "2439f1ac723d9e16309029e6b3bc6ca3"
-domain_name        = "vibe-in-vps.comn"
+cloudflare_zone_id = "3e9e39418b4b024511b1f4111a9cca2e"
+domain_name        = "vibe-in-vps.com"
