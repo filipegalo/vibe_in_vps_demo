@@ -1,6 +1,6 @@
-
 const express = require('express')
 const { Pool } = require('pg')
+const Filter = require('bad-words')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -12,6 +12,8 @@ const pool = new Pool({
 })
 
 app.use(express.urlencoded({ extended: false }))
+
+const profanityFilter = new Filter()
 
 function getCookie(req, name) {
   const cookies = req.headers.cookie
@@ -63,7 +65,7 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => map[c])
 }
 
-function renderPage(visitorCount, entries) {
+function renderPage(visitorCount, entries, error) {
   const entriesHtml = entries.length === 0
     ? '<p class="empty">No messages yet. Be the first to sign!</p>'
     : entries.map(e => `
@@ -234,6 +236,16 @@ function renderPage(visitorCount, entries) {
       word-break: break-word;
     }
 
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      color: #f87171;
+    }
+
     .empty {
       text-align: center;
       color: #4a4a5e;
@@ -264,6 +276,7 @@ function renderPage(visitorCount, entries) {
 
     <div class="card">
       <h2>Leave a message</h2>
+      ${error === 'inappropriate' ? '<p class="error">Please keep your message appropriate.</p>' : ''}
       <form action="/sign" method="POST">
         <input type="text" name="name" placeholder="Your name" required maxlength="100" autocomplete="off" />
         <textarea name="message" placeholder="Write something..." required maxlength="500"></textarea>
@@ -310,8 +323,9 @@ app.get('/', async (req, res) => {
       'SELECT name, message, created_at FROM entries ORDER BY created_at DESC LIMIT 50'
     )
     const entries = entriesResult.rows
+    const error = req.query.error === 'inappropriate' ? 'inappropriate' : null
 
-    const html = renderPage(visitorCount, entries)
+    const html = renderPage(visitorCount, entries, error)
     if (isNewVisitor) {
       res.setHeader('Set-Cookie', `${VISITED_COOKIE}=1; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax`)
     }
@@ -330,6 +344,10 @@ app.post('/sign', async (req, res) => {
 
   const safeName = name.trim().slice(0, 100)
   const safeMessage = message.trim().slice(0, 500)
+
+  if (profanityFilter.isProfane(safeName) || profanityFilter.isProfane(safeMessage)) {
+    return res.redirect('/?error=inappropriate')
+  }
 
   try {
     await pool.query(
