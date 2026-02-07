@@ -1,3 +1,4 @@
+
 const express = require('express')
 const { Pool } = require('pg')
 
@@ -11,6 +12,13 @@ const pool = new Pool({
 })
 
 app.use(express.urlencoded({ extended: false }))
+
+function getCookie(req, name) {
+  const cookies = req.headers.cookie
+  if (!cookies) return null
+  const match = cookies.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'))
+  return match ? decodeURIComponent(match[1]) : null
+}
 
 async function initDb() {
   const client = await pool.connect()
@@ -278,19 +286,36 @@ function renderPage(visitorCount, entries) {
 </html>`
 }
 
+const VISITED_COOKIE = 'visited'
+const COOKIE_MAX_AGE = 24 * 60 * 60 // 1 day in seconds
+
 app.get('/', async (req, res) => {
   try {
-    const countResult = await pool.query(
-      'UPDATE visitors SET count = count + 1 WHERE id = 1 RETURNING count'
-    )
+    const isNewVisitor = !getCookie(req, VISITED_COOKIE)
+
+    let visitorCount
+    if (isNewVisitor) {
+      const countResult = await pool.query(
+        'UPDATE visitors SET count = count + 1 WHERE id = 1 RETURNING count'
+      )
+      visitorCount = countResult.rows[0].count
+    } else {
+      const countResult = await pool.query(
+        'SELECT count FROM visitors WHERE id = 1'
+      )
+      visitorCount = countResult.rows[0].count
+    }
+
     const entriesResult = await pool.query(
       'SELECT name, message, created_at FROM entries ORDER BY created_at DESC LIMIT 50'
     )
-
-    const visitorCount = countResult.rows[0].count
     const entries = entriesResult.rows
 
-    res.send(renderPage(visitorCount, entries))
+    const html = renderPage(visitorCount, entries)
+    if (isNewVisitor) {
+      res.setHeader('Set-Cookie', `${VISITED_COOKIE}=1; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax`)
+    }
+    res.send(html)
   } catch (error) {
     res.status(500).send('<h1>Something went wrong</h1><p>Could not connect to the database.</p>')
   }
